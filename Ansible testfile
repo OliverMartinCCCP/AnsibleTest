@@ -1,0 +1,569 @@
+#Step 0: Make sure you have an account installed on the hosts to be able to access them:
+#	- Make sure you create a home directory in order to be able to access the user through ssh
+#	- We create the account so segregation of duties can be applied
+
+
+#Step 1: Make sure you have ssh enabled on the servers:
+#	- Create ssh key so no passwords needs to be written every time
+#	- Use ssh-keygen to create this key
+#	- ssh-copy-id -l scapl 192.168.10.10
+#	- ssh-copy-id -l scapl 192.168.10.20
+#	- ssh-copy-id -l scapl 192.168.10.30
+#	- ssh-copy-id -l scapl 192.168.10.40
+#	- ssh-copy-id -l scapl 192.168.10.50
+
+
+#Step 2: Check if the connection works:
+#	- ssh -l scapl 192.168.10.10
+#	- ssh -l scapl 192.168.10.20
+#	- ssh -l scapl 192.168.10.30
+#	- ssh -l scapl 192.168.10.40
+#	- ssh -l scapl 192.168.10.50
+
+
+#Step 3: Install latest Ansible:
+#	- apt-add-repository ppa:ansible/ansible
+# 	- apt-get update
+# 	- apt-get install ansible
+#	- ansible --version
+
+
+#Step 4: Create directory structure:
+#	- Look at the structure from /etc/ansible => ls -lga /etc/ansible/
+#	- Copy the structure to an own directory (in our case testAnsible) => cp -R /etc/ansible testAnsible
+# 	- cd testAnsible
+
+
+#Step 5: Edit the configuration file:
+#	- nano ansible.cfg
+# 	- uncomment the hosts file line and set the path to our hosts file
+
+
+#Step 6: Edit the hosts file:
+#	- Remove everything (All commented out)
+#	- Instead write the names of our hosts:
+
+	scapl-frontend
+	scapl-backend
+	scapl-backbone
+	scapl-search
+	scapl-automation
+
+	### REWORK ###
+	[frontend]
+	192.168.10.10 ansible_user=scapl
+
+	[backend]
+	192.168.10.20 ansible_user=scapl
+
+	[backbone]
+	192.168.10.30 ansible_user=scapl
+
+	[search]
+	192.168.10.40 ansible_user=scapl
+
+	[automation]
+	192.168.10.50 ansible_user=scapl
+
+
+#Step 7: Test if all hosts can be reached:
+#	- ansible -m ping all  => This is an adhoc command
+#	- REWORK (if no user is specified in hosts file) => ansible -u scapl -m ping all
+
+
+#Step 8: Test some adhoc commands (passing commands to the servers, in this case all):
+# 	- ansible -m shell -a 'hostname' all
+#	- ansible -m shell -a 'df -h' all
+#	- ansible -m shell -a 'whoami' all  => Ansible will always use the user of the ssh connection
+
+
+#Step 9: Add a user on all hosts in order to execute commands with the required parameters:
+#	- ansible -b -K -m user -a 'name=testuser' all  => use -b -K user in order to add a new user. #	- The sudo password will be asked in order to be able to add the new account. 
+#	- Test if the accounts are created by ssh => ssh frontend
+#	- getent passwd | grep testuser
+#	- or use the technique we just learned: ansible -m shell -a 'getent passwd | grep testuser' all
+
+
+#Step 10: Normally everything won't be entered manually, the order in which you want to execute the roles will be defined in a playbook.
+#	  A role is a list of commands that we want to execute on the hosts. First we will create roles:
+#	- mkdir roles/basic
+# 	- mkdir roles/basic/tasks
+#	- cd roles/basic/tasks
+# 	- nano main.yml
+
+	name: "Installing VIM"
+	apt: pkg=vim state=installed
+
+
+#Step 11: Create the playbook file:
+#	- Go back to the main folder
+# 	- nano playbook.yml
+
+	hosts: all
+	become: true
+	roles:
+	- basic
+
+
+#Step 12: Run the playbook:
+#	- ansible-playbook -K playbook.yml
+#	- Enter the SUDO password to execute the playbook
+
+
+#Extra step 1: Create a vault
+#	- ansible-vault create vaulted_vars.yml
+#	- set the vauklt password (In our case 'back to the roots')
+	
+	frontend_become_pass='back to the roots'
+	backend_become_pass='back to the roots'
+	backbone_become_pass='back to the roots'
+	search_become_pass='back to the roots'
+	automation_become_pass='back to the roots'
+
+
+#Extra step 2: Create vault_password file:
+#	- nano vault_pass
+	
+	back to the roots
+
+
+#Extra step 3: Include the vault everywhere:
+#	- Include it in the hosts file
+	
+	[frontend]
+	192.168.10.10 ansible_user=scapl ansible_become_pass='{{ frontend_become_pass }}'
+
+	[backend]
+	192.168.10.20 ansible_user=scapl ansible_become_pass='{{ backend_become_pass }}'
+
+	[backbone]
+	192.168.10.30 ansible_user=scapl ansible_become_pass='{{ backbone_become_pass }}'
+
+	[search]
+	192.168.10.40 ansible_user=scapl ansible_become_pass='{{ search_become_pass }}'
+
+	[automation]
+	192.168.10.50 ansible_user=scapl ansible_become_pass='{{ automation_become_pass }}'
+
+#	- Include it in the ansible.cfg file
+
+	[defaults]
+	inventory = ~/Documents/ansiblefolder/hosts
+	vault_password_file = ~/Documents/ansiblefolder/vault_pass
+	deprecation_warnings = false
+
+
+#Step 13: Add additional commands to the roles/basic/tasks/main.yml file
+#	- nano roles/basic/tasks/main.yml
+
+	name: "Installing VIM"
+	apt: pkg=vim state=present
+
+	name: "Installing DNS Utils"
+	apt: pkg=dnsutils state=present
+
+	name: "Installing GIT"
+	apt: pkg=vim state=present
+
+
+#Step 14: Run the updated file with the playbook:
+#	- ansible-playbook -K playbook.yml
+#	- Enter the SUDO password to execute the playbook
+#	- REWORK ansible-playbook playbook.yml  => The username and password is located in the vault
+
+
+#Step 15: Change the seperate tasks to install packages to one task containing the subtasks:
+#	- nano roles/basic/tasks/main.yml
+
+	name: "Installing additional software"
+	apt: pkg={{ item }} state=present
+	with_items:
+	- dnsutils
+	- git	
+	- vim	
+	- ntp
+	- at
+	- lvm2
+
+
+#Step 16: Run the updated file with the playbook:
+#	- ansible-playbook -K playbook.yml
+#	- Enter the SUDO password to execute the playbook
+#	- REWORK ansible-playbook playbook.yml
+
+
+#Step 17: Copy a file to other hosts:
+# 	- Use the same role (but you can use another)
+#	- nano roles/basic/tasks/main.yml
+
+	name: "Installing additional software"
+	apt: pkg={{ item }} state=present
+	with_items:
+	- dnsutils
+	- git	
+	- vim	
+	- ntp
+	- at
+	- lvm2
+
+	name: "Adding bashrc"
+	copy: src=../files/.bashrc dest=/etc/bash.bashrc owner=root group=root mode=0644
+
+
+#Step 18: Put the file in the right directory:
+#	- mkdir roles/basic/files
+#	- cp ~/.bashrc roles/basic/files
+
+
+#Step 19: Run the updated file with the playbook:
+#	- ansible-playbook -K playbook.yml
+#	- Enter the SUDO password to execute the playbook
+#	- REWORK ansible-playbook playbook.yml
+
+
+#Step 20: Remove a file from the hosts:
+#	- Because another file already exists it overwrites our newly added bash file
+#	- In order to get our shell to work we need to remove the bash file that overwrites ours
+#	- nano roles/basic/tasks/main.yml
+
+	name: "Installing additional software"
+	apt: pkg={{ item }} state=present
+	with_items:
+	- dnsutils
+	- git	
+	- vim	
+	- ntp
+	- at
+	- lvm2
+
+	name: "Adding bashrc"
+	copy: src=../files/bash.bashrc dest=/etc/bash.bashrc owner=root group=root mode=0644
+
+	name: "Removing the other user's bashrc"
+	shell: creates=/home/scapl/.bashrc_backup mv /home/scapl/.bashrc /home/scapl/.bashrc_backup
+
+	name: "Removing the root's bashrc"
+	shell: creates=/root/.bashrc_backup mv /root/.bashrc /root/.bashrc_backup
+
+
+#Step 21: Run the updated file with the playbook:
+#	- ansible-playbook -K playbook.yml
+#	- Enter the SUDO password to execute the playbook
+#	- REWORK ansible-playbook playbook.yml
+
+
+#Step 22: Create the necessary folder structure to create new role:
+#	- mkdir roles/webserver
+#	- mkdir roles/webserver/tasks
+
+
+#Step 23: Create the file that will install the required packages:
+#	- nano roles/webserver/tasks/main.yml
+	
+	name: "Installing webserver software"
+	apt: name={{ item }}
+	with_items:
+	- apache2
+
+	name: "Enabling proxy module"
+	apache2_module: name=proxy_http
+
+	name: "Adding proxy configuration"
+	template: src=../files/proxy.conf dest=/etc/apache2/conf-available owner=root group=root mode=0644
+
+
+#Step 24: Add a variable in the Ansible config file:
+#	- mkdir roles/webserver/files
+#	- nano roles/webserver/files/proxy.conf
+	
+	ProxyPass / http://{{ hostvars['appserver']['ansible_eth0']['ipv4']['address'] }}:8000/
+	ProxyPass / http://{{ hostvars['appserver']['ansible_eth0']['ipv4']['address'] }}:8000/
+
+
+#Step 25: Enable proxy configuration on the server:
+#	- Create a handler
+# 	- nano /roles/webserver/tasks/main.yml
+
+	name: "Installing webserver software"
+	apt: name={{ item }}
+	with_items:
+	- apache2
+
+	name: "Enabling proxy module"
+	apache2_module: name=proxy_http
+
+	name: "Adding proxy configuration"
+	template: src=../files/proxy.conf dest=/etc/apache2/conf-available owner=root group=root mode=0644
+	notify:
+	- enable-proxy-config
+	
+#	- mkdir roles/webserver/handlers
+#	- nano roles/webserver/handlers/main.yml
+
+	name: enable-proxy-config
+	shell: a2enconf proxy.conf
+	notify:
+	- restart-apache
+
+	name: restart-apache
+	service: name=apache2 state=restarted
+
+
+#Step 26: Add the webserver role the the ansible playbook:
+#	- nano playbook.yml
+
+	hosts: all
+	become: true
+	roles:
+	- basic
+
+	hosts: webserver
+	become: true
+	roles:
+	- webserver
+
+
+#Step 27: Run the updated playbook:
+#	- ansible-playbook -K playbook.yml
+# 	- Enter the SUDO password to execute the playbook
+#	- REWORK ansible-playbook playbook.yml
+
+
+#Step 28: Take a look at the webserver:
+#	- ssh webserver
+#	- ps aux | grep -i apache
+#	- cat /etc/apache2/conf-enabled/proxy.conf
+
+
+#Step 29: Create the necessary folder structure to deploy the appserver:
+#	- mkdir -p roles/appserver/{tasks, handlers, files}
+
+
+#Step 30: Create the tasks needed for the deployment of the appserver:
+#	- nano roles/appserver/tasks/main.yml
+
+	name: "Installing required software"
+	apt: pkg={{ item }} state=present
+	with_items:
+	- gunicorn
+	- supervisor
+	- python-mysqldb
+	- python-falcon
+
+	name: "Making sure supervisor is enabled and started"
+	service: name=supervisor state=started enabled=yes
+
+	name: "Creating the base folder of the application"
+	file= path=/opt/testapp state=directory owner=root group=root mode=0755
+
+	name: "Copying the application"
+	copy src=../files/testapp.py dest=/opt/testapp/testapp.py owner=nobody group=nogroup mode=0755
+	notify:
+	- restart-app
+	
+	name: "Copying the supervisor config file"
+	template: src=../files/testapp.conf dest=/etc/supervisor/conf.d/testapp.conf owner=nobody group=nogroup mode=0644
+	notify:
+	- reread-config
+	- restart-app
+
+
+#Step 31: Create testapp file in the appropriate folder:
+#	- nano roles/appserver/files/testapp.py
+	
+	# sample.py
+	import falcon
+	import MySQLdb
+	import os
+
+	class QuoteResource:
+
+		def on_get(self, req, resp):
+		"""Handles GET requests"""
+
+		resp.content_type= 'text/html'
+		
+		try:
+			db = MySQLdb.connect(host="dbserver", user="ansibletest", passwd=os.environ['databasepassword'], db="ansibletest")
+
+		except:
+			resp.body = '<html><head><title>Error</title></head><body><h1>Database not available!</h1></body></html>'
+			return
+
+		cur = db.cursor()
+		cur.execute("SELECT quote, author FROM quotes ORDER BY RAND() LIMIT 1")
+		data = cur.fetchone()
+
+		resp.body = '<html><head><title>Quote of the moment</title></head><body><h1>{}</h1>-- {}</body></html>'.format(data[0], data[1])
+	
+
+
+	app = falcon.API()
+	app.add_route('/', QuoteResource())
+
+
+#Step 32: Set de database configuration:
+#	- nano roles/appserver/files/testapp.conf
+
+	[program:testapp]
+	command=/user/bin/gunicorn --bind 0.0.0.0:8000 testapp:app
+	directory=/opt/testapp
+	user=nobody
+	autostart=true
+	autorestart=true
+	redirect_stderr=true
+	environment=databasepassword="{{ lookup('password'n 'credentials/dbpassword.txt' }}"
+
+#	- Now we create the passwordfile
+#	- nano roles/appserver/tasks/main.yml
+	
+	name: "Installing required software"
+	apt: pkg={{ item }} state=present
+	with_items:
+	- gunicorn
+	- supervisor
+	- python-mysqldb
+	- python-falcon
+
+	name: "Making sure supervisor is enabled and started"
+	service: name=supervisor state=started enabled=yes
+
+	name: "Creating the base folder of the application"
+	file= path=/opt/testapp state=directory owner=root group=root mode=0755
+
+	name: "Copying the application"
+	copy src=../files/testapp.py dest=/opt/testapp/testapp.py owner=nobody group=nogroup mode=0755
+	notify:
+	- restart-app
+	
+	name: "Copying the supervisor config file"
+	template: src=../files/testapp.conf dest=/etc/supervisor/conf.d/testapp.conf owner=nobody group=nogroup mode=0644
+	notify:
+	- reread-config
+	- restart-app
+
+	name: "Adding IP of dbserver to /etc/hosts"
+
+	lineinfile: name=/etc/hosts line="{{ hostvars['dbserver']['ansible_eth0']['ipv4']['address'] }} dbserver"
+
+
+#Step 33: Provide the handlers mentioned in the tasks file:
+#	- nano /roles/appserver/handlers/main.yml
+
+	name: reread-config
+	shell: supervisorctl reread
+
+	name: restart-app
+	supervisorctl: name=testapp state=restarted
+
+
+#Step 34: Add the role to our playbook and run it:
+#	- nano playbook.yml
+	
+	hosts: all
+	become: true
+	roles:
+	- basic
+
+	hosts: webserver
+	become: true
+	roles:
+	- webserver
+
+	hosts: appserver
+	become: true
+	roles:
+	- appserver
+
+#	- ansible-playbook -K playbook.yml
+#	- Enter the SUDO password to execute the playbook
+#	- REWORK ansible-playbook playbook.yml
+
+
+#Step 35: Create the necessary folder structure to deploy the dbserver:
+#	- mkdir -p roles/dbserver/{tasks, handlers, files}
+
+
+#Step 36: Create the tasks needed for the deployment of the dbserver:
+#	- nano roles/dbserver/tasks/main.yml
+
+	name: "Installing required software"
+	apt: pkg={{ item }} state=present
+	with_items:
+	- mysql-server
+	- python-mysqldb
+
+	name: "Adding databse backup cronjob"
+	cron: hour 10 minute 22 user=toor job="/usr/bin/mysqldump --all-databases > /root/dbbackup.dump" name="MySQL Backup"
+
+	name: "Adding database"
+	mysql_db: name=ansibletest state=present
+	notify: 
+	- import-db
+
+	name: "Copying database dump"
+	copy: src=../files/dbdump.sql dest=/var/tmp/dbdump.sql owner=root group=root mode=0600
+
+	name: "Granting access"
+	mysql_user: name=ansibletest host=% priv=ansibletest.*:ALL password={{ lookup('password', 'credentials/dbpassword.txt') }}
+
+	name: "Allowing remote access"
+	copy: src=..+files/n-mysqld-bind.cnf dest=/etc/mysql/mysql.conf.d/n-mysqld-bind.cnf owner=root group=root mode=0644
+	notify:
+	- restart-mysql
+
+
+#Step 37: Configure the files Ansible needs to copy:
+#	- nano roles/dbserver/files/n-mysqld-bind.cnf
+
+	[mysqld]
+	bind-address = 0.0.0.0
+
+#	- nano roles/dbserver/files/dbdump.sql
+
+	CREATE TABLE quotes (id INT(10) NOT NULL AUTO_INCREMENT PRIMARY KEY, quote VARCHAR(255) NOT NULL, author VARCHAR(255) NOT NULL);
+
+	INSERT INTO quotes (quote, author) VALUES ('Do what I do. Hold tight and pretend it\'s a plan!', 'The Doctor');
+	INSERT INTO quotes (quote, author) VALUES ('Live long and prosper.'; 'Spock');
+	INSERT INTO quotes (quote, author) VALUES ('User the force Luke', 'Ben Obi-Wan Kenobi');
+
+#Step 38: Create the handlers:
+#	- nano roles/dbserver/handlers/main.yml
+	
+	name: import-db
+	mysql_db: name=ansibletest state=import target=/var/tmp/dbdump.sql
+
+	name: restart-mysql
+	service: name=mysql status=restarted
+
+
+#Step 39: Add the role to our playbook and run it:
+#	- nano playbook.yml
+	
+	hosts: all
+	become: true
+	roles:
+	- basic
+
+	hosts: webserver
+	become: true
+	roles:
+	- webserver
+
+	hosts: appserver
+	become: true
+	roles:
+	- appserver
+
+	hosts: dbserver
+	become: true
+	roles:
+	- dbserver
+
+#	- ansible-playbook -K -l dbserver playbook.yml
+#	- Enter the SUDO password to execute the playbook
+#	- REWORK ansible-playbook playbook.yml
+
+
+
+# Source: https://www.youtube.com/watch?v=icR-df2Olm8&list=PLFiccIuLB0OiWh7cbryhCaGPoqjQ62NpU
